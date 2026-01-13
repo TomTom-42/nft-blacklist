@@ -4,6 +4,9 @@ A Bash shell script which uses nftables sets to ban a large number of IP address
 
 ## What's new
 
+- 01/13/2026: Added forwarding traffic blocking (e.g., for bridge interfaces like Docker)
+- 05/17/2025: fix 2 minor issues in README [@deutrino](https://github.com/deutrino)
+- 02/26/2025: misc improvements: functions/lib, maintainability & curl usage [@drzraf](https://github.com/drzraf)
 - 12/31/2023: Add more customization options using shell variables {[@henrythasler](https://github.com/henrythasler)}
 - 08/26/2022: Added experimental IPv6 support and whitelists [@leshniak](https://github.com/leshniak)
 - 08/24/2022: Created this fork and nftables-based version [@leshniak](https://github.com/leshniak)
@@ -30,7 +33,7 @@ A Bash shell script which uses nftables sets to ban a large number of IP address
 
 ## First run, create the list
 
-to generate the `/etc/nft-blacklist/ip-blacklist.restore`:
+to generate the files in `/var/cache/nft-blacklist`:
 
 ```sh
 /usr/local/sbin/nft-blacklist.sh /etc/nft-blacklist/nft-blacklist.conf
@@ -52,7 +55,7 @@ In order to auto-update the blacklist, copy the following code into `/etc/cron.d
 ```sh
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 MAILTO=root
-33 23 * * *      root /usr/local/sbin/nft-blacklist.sh /var/cache/nft-blacklist/nft-blacklist.conf
+33 23 * * *      root /usr/local/sbin/nft-blacklist.sh /etc/nft-blacklist/nft-blacklist.conf
 ```
 
 ## Check for dropped packets

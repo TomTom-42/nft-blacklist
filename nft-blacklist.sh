@@ -1,9 +1,26 @@
 #!/bin/bash
 #
+# from:
+# https://github.com/drzraf/ipset-blacklist/tree/function-based
+# https://github.com/leshniak/nft-blacklist
+#
 # usage nft-blacklist.sh <configuration file>
 # eg: nft-blacklist.sh /etc/nft-blacklist/nft-blacklist.conf
 #
 # lib-friendly, you can do: `. nft-blacklist.conf; . nft-blacklist.sh; extract_v4 mylist*.txt`
+#
+# List blacklist NFT chains
+# nft -a list chain inet blackhole input
+# If forwarding block is activated
+# nft -a list chain inet blackhole forward
+#
+# Flush blacklists
+# nft flush set inet blackhole blacklist_v4
+# nft flush set inet blackhole blacklist_v6
+#
+# Delete the entire 'blackhole' table (all chains, sets, and counters)
+# Use this if you want to completely remove the blacklist rules
+# nft delete table inet blackhole
 
 # can be executable name or custom path of either `iprange`
 # (not IPv6 support: https://github.com/firehol/iprange/issues/14)
@@ -39,25 +56,25 @@ function count_entries() { wc -l "$1" | cut -d' ' -f1 ; }
 
 validate() {
     if [[ -z "$1" ]]; then
-	echo "Error: please specify a configuration file, e.g. $0 /etc/nft-blacklist/nft-blacklist.conf"
+	echo "🚨 Error: please specify a configuration file, e.g. $0 /etc/nft-blacklist/nft-blacklist.conf"
 	exit 1
     fi
 
     # shellcheck source=nft-blacklist.conf
     if ! source "$1"; then
-	echo "Error: can't load configuration file $1"
+	echo "🚨 Error: can't load configuration file $1"
 	exit 1
     fi
 
     if ! type -P curl grep sed sort wc date &>/dev/null; then
-	echo >&2 "Error: searching PATH fails to find executables among: curl grep sed sort wc date"
+	echo >&2 "🚨 Error: searching PATH fails to find executables among: curl grep sed sort wc date"
 	exit 1
     fi
 }
 
 download() {
     BLACKLIST_TMP_DIR="$1" && shift
-    (( $VERBOSE )) && echo -n "Downloading ${#BLACKLISTS[@]} sources into $BLACKLIST_TMP_DIR : "
+    (( $VERBOSE )) && echo -n "⏳ Downloading ${#BLACKLISTS[@]} sources into $BLACKLIST_TMP_DIR : "
 
     for url in "${BLACKLISTS[@]}"; do
 	nc=$(curl --version|head -1|awk '{if ($2 > 7.83) print("--no-clobber")}')
@@ -67,9 +84,9 @@ download() {
 	if (( HTTP_RC == 200 || HTTP_RC == 302 )) || [[ $HTTP_RC =~ ^(000|200){1,}$ ]]; then
 	    (( $VERBOSE )) && echo -n "."
 	elif (( HTTP_RC == 503 )); then
-	    echo -e "\\nUnavailable (${HTTP_RC}): $url"
+	    echo -e "\\n🚨 Unavailable (${HTTP_RC}): $url"
 	else
-	    echo >&2 -e "\\nWarning: curl returned HTTP response code $HTTP_RC for URL $url"
+	    echo >&2 -e "\\n⚠ Warning: curl returned HTTP response code $HTTP_RC for URL $url"
 	fi
     done
 
@@ -93,7 +110,7 @@ optimize() {
     local tmpv4=$(mktemp -t nft-blacklist-opti-ip4-XXX)
     local tmpv6=$(mktemp -t nft-blacklist-opti-ip6-XXX)
 
-    (( $VERBOSE )) && echo -e "Optimizing entries...\\nFound: $(count_entries "$v4file") IPv4, $(count_entries "$v6file") IPv6"
+    (( $VERBOSE )) && echo -e "⏳ Optimizing entries...\\n📌 Found: $(count_entries "$v4file") IPv4, $(count_entries "$v6file") IPv6"
 
     if [[ $CIDR_MERGER =~ merger ]]; then
 	$CIDR_MERGER -o "$tmpv4" -o "$tmpv6" "$v4file" "$v6file"
@@ -104,7 +121,7 @@ optimize() {
 	$CIDR_MERGER -s "$v4file" >| "$tmpv4"
 	$CIDR_MERGER -s "$v6file" >| "$tmpv6"
     fi
-    (( $VERBOSE )) && echo -e "Saved: $(count_entries "$tmpv4") IPv4, $(count_entries "$tmpv6") IPv6\\n"
+    (( $VERBOSE )) && echo -e "📌 Saved: $(count_entries "$tmpv4") IPv4, $(count_entries "$tmpv6") IPv6\\n"
     command mv -f "$tmpv4" "$v4file"
     command mv -f "$tmpv6" "$v6file"
 }
@@ -151,6 +168,20 @@ $(sed -rn -e '/^[#$;]/d' -e "s/^(([0-9a-f:.]+:+[0-9a-f]*)+(\/[0-9]{1,3})?).*/  \
 }
 EOF
     fi
+
+# ---------------- Forwarded Traffic Blacklist ----------------
+# e.g., Docker bridge
+if (( $BLOCK_FORWARDED )); then
+cat <<EOF
+# Forward chain
+add chain inet ${TABLE} forward { type filter hook forward priority filter; policy accept; }
+flush chain inet ${TABLE} forward
+
+# Rules → drop any blacklisted IPs in forwarded traffic
+add rule inet ${TABLE} forward ip saddr @$SET_NAME_V4 drop
+add rule inet ${TABLE} forward ip6 saddr @$SET_NAME_V6 drop
+EOF
+fi
 }
 
 # If source (to reuse functions), don't exit
@@ -160,6 +191,7 @@ EOF
 [[ ${DRY_RUN:-no} =~ ^1|on|true|yes$ ]] && let DRY_RUN=1 || let DRY_RUN=0
 [[ ${DO_OPTIMIZE_CIDR:-yes} =~ ^1|on|true|yes$ ]] && let OPTIMIZE_CIDR=1 || let OPTIMIZE_CIDR=0
 [[ ${KEEP_TMP_FILES:-no} =~ ^1|on|true|yes$ ]] && let KEEP_TMP_FILES=1 || let KEEP_TMP_FILES=0
+[[ ${BLOCK_FORWARDED:-yes} =~ ^1|on|true|yes$ ]] && let BLOCK_FORWARDED=1 || let BLOCK_FORWARDED=0
 CIDR_MERGER="${CIDR_MERGER:-$DEFAULT_CIDR_MERGER}"
 HOOK="${HOOK:-$DEFAULT_HOOK}"
 CHAIN="${CHAIN:-$DEFAULT_CHAIN}"
@@ -169,14 +201,14 @@ if exists $CIDR_MERGER && (( $OPTIMIZE_CIDR )); then
   let OPTIMIZE_CIDR=1
 elif (( $OPTIMIZE_CIDR )); then
   let OPTIMIZE_CIDR=0
-  echo >&2 "Warning: $CIDR_MERGER is not available"
+  echo >&2 "⚠ Warning: $CIDR_MERGER is not available"
 fi
 
 # If source (to reuse functions), stop here
 [[ "${BASH_SOURCE[0]}" != "${0}" ]] && return;
 
 if [[ ! -d $(dirname "$IP_BLACKLIST_FILE") || ! -d $(dirname "$IP6_BLACKLIST_FILE") || ! -d $(dirname "$RULESET_FILE") ]]; then
-  echo >&2 "Error: missing directory(s): $(dirname "$IP_BLACKLIST_FILE" "$IP6_BLACKLIST_FILE" "$RULESET_FILE" | sort -u)"
+  echo >&2 "🚨 Error: missing directory(s): $(dirname "$IP_BLACKLIST_FILE" "$IP6_BLACKLIST_FILE" "$RULESET_FILE" | sort -u)"
   exit 1
 fi
 
@@ -194,16 +226,18 @@ generate_ruleset >| "$RULESET_FILE"
 
 # Loading
 if (( ! $DRY_RUN )); then
-  (( $VERBOSE )) && echo "Applying ruleset..."
-  $NFT -f "$RULESET_FILE" || { echo >&2 "Failed to apply the ruleset"; exit 1; }
+  (( $VERBOSE )) && echo "⏳ Applying ruleset..."
+  $NFT -f "$RULESET_FILE" || { echo >&2 "🚨 Failed to apply the ruleset"; exit 1; }
 fi
 
 if (( $VERBOSE )); then
   echo
-  echo "IPv4 blacklisted: $(wc -l "$IP_BLACKLIST_FILE" | cut -d' ' -f1)"
-  echo "IPv6 blacklisted: $(wc -l "$IP6_BLACKLIST_FILE" | cut -d' ' -f1)"
+  echo "📌 IPv4 blacklisted: $(wc -l "$IP_BLACKLIST_FILE" | cut -d' ' -f1)"
+  echo "📌 IPv6 blacklisted: $(wc -l "$IP6_BLACKLIST_FILE" | cut -d' ' -f1)"
+  (( $BLOCK_FORWARDED )) && ( echo; echo "✅ Block Forwarded" )
+  echo
 fi
 
-(( $VERBOSE )) && echo "Done!"
+(( $VERBOSE )) && echo "🎉 Done!"
 
 exit 0
