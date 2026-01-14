@@ -7,7 +7,7 @@ A Bash shell script which uses nftables sets to ban a large number of IP address
 - 01/13/2026: Added forwarding traffic blocking (e.g., for bridge interfaces like Docker)
 - 05/17/2025: fix 2 minor issues in README [@deutrino](https://github.com/deutrino)
 - 02/26/2025: misc improvements: functions/lib, maintainability & curl usage [@drzraf](https://github.com/drzraf)
-- 12/31/2023: Add more customization options using shell variables {[@henrythasler](https://github.com/henrythasler)}
+- 12/31/2023: Add more customization options using shell variables [@henrythasler](https://github.com/henrythasler)
 - 08/26/2022: Added experimental IPv6 support and whitelists [@leshniak](https://github.com/leshniak)
 - 08/24/2022: Created this fork and nftables-based version [@leshniak](https://github.com/leshniak)
 - 10/17/2018: Added support for CIDR aggregation if iprange command is available
@@ -22,9 +22,9 @@ A Bash shell script which uses nftables sets to ban a large number of IP address
 
 ## Quick start for Debian/Ubuntu based installations
 
-1. `wget -O /usr/local/sbin/nft-blacklist.sh https://raw.githubusercontent.com/leshniak/nft-blacklist/master/nft-blacklist.sh`
+1. `wget -O /usr/local/sbin/nft-blacklist.sh https://raw.githubusercontent.com/TomTom-42/nft-blacklist/master/nft-blacklist.sh`
 2. `chmod +x /usr/local/sbin/nft-blacklist.sh`
-3. `mkdir -p /etc/nft-blacklist && mkdir -p /var/cache/nft-blacklist ; wget -O /etc/nft-blacklist/nft-blacklist.conf https://raw.githubusercontent.com/leshniak/nft-blacklist/master/nft-blacklist.conf`
+3. `mkdir -p /etc/nft-blacklist && mkdir -p /var/cache/nft-blacklist ; wget -O /etc/nft-blacklist/nft-blacklist.conf https://raw.githubusercontent.com/TomTom-42/nft-blacklist/master/nft-blacklist.conf`
 4. Modify `nft-blacklist.conf` according to your needs. Per default, the blacklisted IP addresses will be saved to `/var/cache/nft-blacklist/blacklist.nft`
 5. `apt-get install nftables`
 6. Download `cidr-merger` from https://github.com/zhanhb/cidr-merger/releases
@@ -90,3 +90,27 @@ BLACKLISTS=(
 ```
 
 If you for some reason want to ban all IP addresses from a certain country, have a look at [IPverse.net's](http://ipverse.net/ipblocks/data/countries/) aggregated IP lists which you can simply add to the BLACKLISTS variable. For a ton of spam and malware related blacklists, check out this github repo: https://github.com/firehol/blocklist-ipsets
+
+## Blacklists for forwarded traffic
+
+In addition to filtering incoming traffic, the script can also apply blacklists to **forwarded traffic**, which is especially useful for hosts running Docker, where traffic goes through bridge interfaces.
+
+When enabled, any forwarded packet with a source IP present in the blacklist is dropped in the `forward` chain, ensuring that internal networks and containers are also protected.
+
+#### Configuration
+
+This feature is controlled by the `BLOCK_FORWARDED` parameter in the configuration file:
+```sh
+BLOCK_FORWARDED=yes
+```
+
+- `BLOCK_FORWARDED=yes` → apply blacklists to forwarded traffic
+- `BLOCK_FORWARDED=no` → do not filter forwarded traffic
+- If the parameter is not present, the script defaults to `yes`
+
+To disable forwarded traffic filtering, you must explicitly set:
+```sh
+BLOCK_FORWARDED=no
+```
+
+Otherwise, forwarded traffic blocking remains enabled by default.
